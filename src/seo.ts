@@ -1,5 +1,5 @@
 const SITE_NAME = 'BoardBrawl'
-const BASE_URL = import.meta.env.VITE_SITE_URL || 'https://board-brawl.com'
+const BASE_URL = import.meta.env.VITE_SITE_URL || 'http://localhost:5173'
 
 export const seoDefaults = {
   siteName: SITE_NAME,

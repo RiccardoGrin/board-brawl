@@ -608,7 +608,7 @@ const RATE_MS = 5500;
 let lastHit = 0;
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ??
-  "https://board-brawl.com,https://boardbrawl.web.app,https://boardbrawl.firebaseapp.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173").split(",")
+  "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173").split(",")
   .map((o) => o.trim())
   .filter(Boolean);
 

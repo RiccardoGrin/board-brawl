@@ -23,7 +23,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:rules:raw": "vitest run tests/rules",
-    "test:rules": "firebase emulators:exec --only firestore --project boardbrawl-rules-tests \"npm run test:rules:raw\""
+    "test:rules": "firebase emulators:exec --only firestore --project demo-boardbrawl \"npm run test:rules:raw\""
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

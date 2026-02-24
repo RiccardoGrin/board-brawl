@@ -36,3 +36,7 @@ nul
 
 # Claude Code local settings
 .claude/settings.local.json
+CLAUDE.md
+
+# IDX / Project IDX
+.idx/

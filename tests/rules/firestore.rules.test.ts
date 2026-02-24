@@ -12,7 +12,7 @@ import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 let testEnv: RulesTestEnvironment;
 
 const rules = readFileSync(path.join(process.cwd(), 'firestore.rules'), 'utf8');
-const projectId = 'boardbrawl-rules-tests';
+const projectId = 'demo-boardbrawl';
 const hostFromEnv = process.env.FIRESTORE_EMULATOR_HOST;
 const [envHost, envPort] = hostFromEnv ? hostFromEnv.split(':') : [];
 const emulatorHost = envHost || '127.0.0.1';

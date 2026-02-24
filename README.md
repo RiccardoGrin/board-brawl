@@ -40,6 +40,42 @@ Whether you're battling it out in free-for-all classics or teaming up for epic s
 
 The application will be available at `http://localhost:5173`.
 
+## Configuration
+
+### Environment Variables
+
+Copy `env.example` to `.env.local` and fill in your Firebase project values. See [CONTRIBUTING.md](CONTRIBUTING.md) for full setup instructions.
+
+```bash
+cp env.example .env.local
+```
+
+> **Note:** The app works in guest mode (localStorage only) without any Firebase config. You only need Firebase for sign-in and cloud sync.
+
+### Firebase Setup
+
+Each contributor/deployment needs its own Firebase project (free tier is fine). See [CONTRIBUTING.md](CONTRIBUTING.md) for step-by-step instructions covering Authentication, Firestore, Cloud Functions, and security rules.
+
+### Cloud Functions CORS
+
+Cloud Functions default to allowing `localhost` origins only. To allow your production domain, set the `ALLOWED_ORIGINS` environment variable on your Firebase functions:
+
+```bash
+firebase functions:config:set cors.allowed_origins="https://your-domain.com,http://localhost:5173"
+```
+
+### SEO / Site URL
+
+Set `VITE_SITE_URL` in your `.env.local` to your production URL for correct canonical URLs and Open Graph tags. Defaults to `http://localhost:5173`.
+
+### Firestore Rules Tests
+
+Rules tests use the Firebase emulator with a `demo-*` project prefix (no real Firebase project needed):
+
+```bash
+npm run test:rules
+```
+
 ## Tech Stack
 
 - **Framework:** [React](https://react.dev/) with [TypeScript](https://www.typescriptlang.org/)
