@@ -1,0 +1,649 @@
+rules_version = '2';
+
+/**
+ * BoardBrawl Firestore Security Rules (Phase 2)
+ * 
+ * Collections:
+ * - /users/{uid} - User profiles with userCode
+ * - /userCodes/{code} - Public mapping for userCode lookups
+ * - /users/{uid}/games/{gameId} - UserGame (canonical game metadata per user)
+ * - /users/{uid}/libraries/{libraryId} - Libraries with optional systemKey protection
+ * - /users/{uid}/libraries/{libraryId}/items/{gameId} - LibraryMembership
+ * - /users/{uid}/libraries/{libraryId}/shelves/{shelfId} - ShelfConfig (Phase 2: virtual shelf layout)
+ * - /games/{gameId} - Canonical game cache from BGG
+ * - /tournaments/{tournamentId} - Tournament documents
+ * - /tournaments/{tournamentId}/gameSessions/{sessionId} - Game sessions
+ * 
+ * Key Features:
+ * - System libraries (systemKey: 'my' | 'wishlist') cannot be deleted or renamed
+ * - UserGame is the canonical source for game metadata (rating, notes, etc.)
+ * - LibraryMembership is lightweight (just gameId, addedAt, hideFromPublic)
+ * - ShelfConfig stores virtual shelf grid layout (4 columns × N rows, max 25 rows)
+ */
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ==================== Helper Functions ====================
+
+    /** Check if the request is from an authenticated user */
+    function isSignedIn() {
+      return request.auth != null && request.auth.uid != null;
+    }
+
+    /** Check if a value is a non-empty string with max length */
+    function isStringMax(val, max) {
+      return val is string && val.size() > 0 && val.size() <= max;
+    }
+
+    /** Check if a value is null or a string with max length */
+    function isOptionalStringMax(val, max) {
+      return val == null || (val is string && val.size() <= max);
+    }
+
+    /** Check if a field is being deleted (via deleteField()) or is a valid string */
+    function isOptionalStringMaxOrDeleted(fieldName, val, max) {
+      return !(fieldName in request.resource.data) || val == null || (val is string && val.size() <= max);
+    }
+
+    /**
+     * Check if a value is a valid timestamp-like field.
+     * Accepts Firestore Timestamp, ISO string, or serverTimestamp() transform.
+     */
+    function isTimestampLike(val) {
+      return val == null
+        || val is timestamp
+        || val is string
+        || val is map;
+    }
+
+    /** Check if a value is a non-negative number (int or float) */
+    function isNonNegativeNumber(val) {
+      return (val is int || val is float) && val >= 0;
+    }
+
+    /** Optional non-negative number */
+    function isOptionalNonNegativeNumber(val) {
+      return val == null || isNonNegativeNumber(val);
+    }
+
+    /** Optional list with max size */
+    function isOptionalListMax(val, max) {
+      return val == null || (val is list && val.size() <= max);
+    }
+
+    /** Check if a value is a valid boolean */
+    function isOptionalBool(val) {
+      return val == null || val is bool;
+    }
+
+    // ==================== List Validators ====================
+    // Note: These use size-based validation only. The .all() iterator
+    // caused permission-denied errors, so element validation was removed.
+
+    /** Validate players list: non-empty, max 100 items */
+    function validPlayers(players) {
+      return players is list && players.size() > 0 && players.size() <= 100;
+    }
+
+    /** Validate game session IDs list: max 500 items */
+    function validGameSessionIds(ids) {
+      return ids is list && ids.size() <= 500;
+    }
+
+    /** Validate member IDs list: non-empty, max 50 items */
+    function validMemberIds(memberIds) {
+      return memberIds is list && memberIds.size() > 0 && memberIds.size() <= 50;
+    }
+
+    /** Validate participants list: non-empty, max 200 items */
+    function validParticipants(participants) {
+      return participants is list && participants.size() > 0 && participants.size() <= 200;
+    }
+
+    /** Validate teams list: optional, max 50 items */
+    function validTeams(teams) {
+      return teams == null || (teams is list && teams.size() <= 50);
+    }
+
+    /** Validate results list: optional, max 200 items */
+    function validResults(results) {
+      return results == null || (results is list && results.size() <= 200);
+    }
+
+    // ==================== Object Validators ====================
+
+    /** Validate scoring rules object */
+    function validScoringRules(rules) {
+      return rules is map
+        && isNonNegativeNumber(rules.first)
+        && isNonNegativeNumber(rules.second)
+        && isNonNegativeNumber(rules.third)
+        && isNonNegativeNumber(rules.others);
+    }
+
+    /** Validate bracket match object */
+    function validBracketMatch(bracketMatch) {
+      return bracketMatch is map
+        && bracketMatch.id is string
+        && bracketMatch.round is int && bracketMatch.round > 0
+        && bracketMatch.matchNumber is int && bracketMatch.matchNumber >= 0
+        && bracketMatch.isComplete is bool;
+    }
+
+    /** Validate bracket config object */
+    function validBracketConfig(config) {
+      return config is map
+        && isStringMax(config.gameTitle, 80)
+        && config.totalRounds is int && config.totalRounds > 0 && config.totalRounds < 10
+        && config.currentRound is int && config.currentRound > 0
+        && config.hasStarted is bool
+        && config.bracket is list && config.bracket.size() > 0 && config.bracket.size() < 100;
+    }
+
+    /** Validate tournament document fields */
+    function validTournamentFields(data) {
+      return isStringMax(data.name, 25)
+        && isOptionalStringMaxOrDeleted('description', data.description, 60)
+        && isStringMax(data.state, 10)
+        && isTimestampLike(data.date)
+        && validPlayers(data.players)
+        && validGameSessionIds(data.gameSessions)
+        && validMemberIds(data.memberIds)
+        && data.ownerId is string
+        && data.ownerId in data.memberIds
+        && (data.memberRoles == null || data.memberRoles is map)
+        && (data.format == null || (data.format is string && data.format.size() <= 20))
+        && (
+          !('bracketConfig' in data)
+          || data.bracketConfig == null
+          || validBracketConfig(data.bracketConfig)
+        )
+        && (data.ownerName == null || data.ownerName is string)
+        && (data.createdAt == null || isTimestampLike(data.createdAt))
+        && (data.updatedAt == null || isTimestampLike(data.updatedAt));
+    }
+
+    /** Validate cached game document fields (games collection) */
+    function validGameDoc(data) {
+      return isStringMax(data.primaryName, 80)
+        && data.normalized is string && data.normalized.size() > 0 && data.normalized.size() <= 120
+        && data.sourceIds is map && data.sourceIds.bgg is string && data.sourceIds.bgg.size() <= 30
+        && isOptionalListMax(data.sources, 10)
+        && isOptionalListMax(data.altNames, 40)
+        && isOptionalNonNegativeNumber(data.year)
+        && isOptionalNonNegativeNumber(data.minPlayers)
+        && isOptionalNonNegativeNumber(data.maxPlayers)
+        && isOptionalNonNegativeNumber(data.minPlaytime)
+        && isOptionalNonNegativeNumber(data.maxPlaytime)
+        && isOptionalNonNegativeNumber(data.playingTime)
+        && isOptionalNonNegativeNumber(data.rating)
+        && isOptionalNonNegativeNumber(data.bayesAverage)
+        && isOptionalListMax(data.designers, 50)
+        && isOptionalListMax(data.publishers, 50)
+        && isOptionalListMax(data.categories, 50)
+        && isOptionalListMax(data.mechanics, 50)
+        && isOptionalListMax(data.ranks, 100)
+        && isOptionalStringMax(data.image, 500)
+        && isOptionalStringMax(data.thumbnail, 500)
+        // Extended BGG data (box dimensions, additional images, rules files)
+        && isOptionalNonNegativeNumber(data.boxWidthInches)
+        && isOptionalNonNegativeNumber(data.boxLengthInches)
+        && isOptionalNonNegativeNumber(data.boxDepthInches)
+        && isOptionalNonNegativeNumber(data.boxWeightLbs)
+        && isOptionalListMax(data.additionalImages, 100)
+        && isOptionalListMax(data.rulesFiles, 50)
+        && isTimestampLike(data.fetchedAt)
+        // Focal point for thumbnail cropping (admin-set)
+        && isOptionalNonNegativeNumber(data.focalPointX)
+        && isOptionalNonNegativeNumber(data.focalPointY);
+    }
+
+    // ==================== User Code Mapping ====================
+    // Public mapping for userCode -> uid lookups
+    // Written only by Cloud Functions (beforeUserCreated trigger)
+    
+    match /userCodes/{code} {
+      // Anyone can read (for public library URL resolution)
+      allow read: if true;
+      // No client writes - only Cloud Functions can create these
+      allow write: if false;
+    }
+
+    // ==================== User Documents ====================
+
+    match /users/{userId} {
+      // Users can read any profile (for user code lookups)
+      // Users can only write their own profile
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId;
+      
+      // ==================== UserGame Collection ====================
+      // Canonical per-user game metadata (rating, notes, tags, etc.)
+      // The same game can appear in multiple libraries, but metadata lives here.
+      
+      match /games/{gameId} {
+        
+        /** Validate UserGame document fields */
+        function validUserGameFields(data) {
+          return isStringMax(data.gameId, 50)
+            && data.ownerId == userId
+            && isStringMax(data.gameName, 100)
+            && isOptionalStringMax(data.gameThumbnail, 500)
+            && isOptionalNonNegativeNumber(data.gameYear)
+            && data.status in ['owned', 'preordered', 'formerlyOwned', 'played']
+            && (data.myRating == null || (isNonNegativeNumber(data.myRating) && data.myRating <= 10))
+            && data.favorite is bool
+            && isOptionalStringMax(data.notes, 500)
+            && isOptionalListMax(data.tags, 20)
+            && data.forTrade is bool
+            && data.forSale is bool
+            && (data.boxSizeClass == null || data.boxSizeClass in ['S', 'M', 'L', 'XL', 'Tall'])
+            && isOptionalNonNegativeNumber(data.boxWidthMm)
+            && isOptionalNonNegativeNumber(data.boxHeightMm)
+            && isOptionalNonNegativeNumber(data.boxDepthMm)
+            && (data.condition == null || data.condition in ['new', 'likeNew', 'good', 'fair', 'worn'])
+            && isOptionalStringMax(data.language, 50)
+            && isOptionalStringMax(data.edition, 100)
+            && isOptionalNonNegativeNumber(data.playCount)
+            && isOptionalNonNegativeNumber(data.winCount)
+            && isTimestampLike(data.createdAt)
+            && isTimestampLike(data.updatedAt);
+        }
+        
+        // Read: owner only
+        allow read: if isSignedIn() && request.auth.uid == userId;
+        
+        // Write: owner only + valid shape
+        allow create, update: if isSignedIn() 
+          && request.auth.uid == userId
+          && validUserGameFields(request.resource.data);
+        
+        // Delete: owner only
+        allow delete: if isSignedIn() && request.auth.uid == userId;
+      }
+
+      // ==================== User Stats ====================
+      // Precomputed statistics - written only by Cloud Functions
+      // Used for fast dashboard loading
+
+      match /stats/{docId} {
+        // Read: owner only
+        allow read: if isSignedIn() && request.auth.uid == userId;
+        // Write: denied for clients - Cloud Functions use Admin SDK
+        allow write: if false;
+      }
+
+      // ==================== Per-Game Stats ====================
+      // Per-game play/win counters - written only by Cloud Functions
+
+      match /gameStats/{gameId} {
+        // Read: owner only
+        allow read: if isSignedIn() && request.auth.uid == userId;
+        // Write: denied for clients - Cloud Functions use Admin SDK
+        allow write: if false;
+      }
+
+      // ==================== Libraries ====================
+      // Libraries are stored as subcollections under users
+      // System libraries (systemKey: 'my' | 'wishlist') cannot be deleted or renamed
+      
+      match /libraries/{libraryId} {
+        
+        /** Check if the library is publicly visible */
+        function isPublicLibrary() {
+          return resource.data.visibility == 'public';
+        }
+        
+        /** Check if this is a system library */
+        function isSystemLibrary() {
+          return resource.data.systemKey != null;
+        }
+        
+        /** Validate library document fields */
+        function validLibraryFields(data) {
+          return data.ownerId == userId
+            && isStringMax(data.name, 50)
+            && isOptionalStringMax(data.description, 200)
+            && data.visibility in ['public', 'private']
+            && (data.systemKey == null || data.systemKey in ['my', 'wishlist'])
+            && isOptionalNonNegativeNumber(data.sortOrder)
+            && (data.viewMode == null || data.viewMode in ['list', 'shelf'])
+            && (data.theme == null || data.theme is map)
+            && isTimestampLike(data.createdAt)
+            && isTimestampLike(data.updatedAt);
+        }
+        
+        /** Check if system library name is being changed */
+        function systemLibraryNameUnchanged() {
+          return resource.data.systemKey == null 
+            || request.resource.data.name == resource.data.name;
+        }
+        
+        // Read: owner always, others only if public
+        allow read: if (isSignedIn() && request.auth.uid == userId)
+          || isPublicLibrary();
+        
+        // Create: owner only with validation
+        allow create: if isSignedIn() 
+          && request.auth.uid == userId 
+          && validLibraryFields(request.resource.data);
+        
+        // Update: owner only, system libraries cannot be renamed
+        allow update: if isSignedIn() 
+          && request.auth.uid == userId 
+          && validLibraryFields(request.resource.data)
+          && systemLibraryNameUnchanged();
+        
+        // Delete: owner only, system libraries cannot be deleted
+        allow delete: if isSignedIn() 
+          && request.auth.uid == userId
+          && !isSystemLibrary();
+        
+        // ==================== Library Memberships ====================
+        // Lightweight reference linking a game to a library
+        // Document ID is the gameId for easy lookups
+        
+        match /items/{gameId} {
+          
+          /** Check if parent library is public or user is owner */
+          function canReadMembership() {
+            let library = get(/databases/$(database)/documents/users/$(userId)/libraries/$(libraryId)).data;
+            return (isSignedIn() && request.auth.uid == userId)
+              || library.visibility == 'public';
+          }
+          
+          /** Validate library membership document fields */
+          function validMembershipFields(data) {
+            return isStringMax(data.gameId, 50)
+              && isTimestampLike(data.addedAt)
+              && isOptionalBool(data.hideFromPublic)
+              && isOptionalStringMax(data.gameName, 100)
+              && isOptionalStringMax(data.gameThumbnail, 500)
+              && isOptionalNonNegativeNumber(data.gameYear);
+          }
+          
+          // Read: if parent library allows
+          allow read: if canReadMembership();
+          
+          // Write: owner only + valid shape
+          allow create, update: if isSignedIn() 
+            && request.auth.uid == userId
+            && validMembershipFields(request.resource.data);
+          
+          // Delete: owner only
+          allow delete: if isSignedIn() && request.auth.uid == userId;
+        }
+        
+        // ==================== Shelf Configuration (Phase 2) ====================
+        // Virtual shelf layout for the library
+        // Stored as subcollection: /users/{uid}/libraries/{libraryId}/shelves/{shelfId}
+        // Default shelf document ID is 'default'
+        
+        match /shelves/{shelfId} {
+          
+          /** Check if parent library is public or user is owner */
+          function canReadShelf() {
+            let library = get(/databases/$(database)/documents/users/$(userId)/libraries/$(libraryId)).data;
+            return (isSignedIn() && request.auth.uid == userId)
+              || library.visibility == 'public';
+          }
+          
+          /** Validate shelf cell structure */
+          function validShelfCell(cell) {
+            return cell is map
+              && cell.gameIds is list
+              && cell.gameIds.size() <= 50;  // Max 50 games per cell
+          }
+          
+          /** Validate shelf configuration document fields */
+          function validShelfFields(data) {
+            return data.rowCount is int
+              && data.rowCount >= 1
+              && data.rowCount <= 25
+              && data.cells is list
+              && data.cells.size() == data.rowCount * 4  // 4 columns fixed
+              && data.cells.size() <= 100  // Max 100 cells (25 rows × 4 cols)
+              && isTimestampLike(data.createdAt)
+              && isTimestampLike(data.updatedAt);
+            // Note: Individual cell validation skipped due to .all() iterator issues
+            // Cell structure is validated client-side
+          }
+          
+          // Read: if parent library allows (owner or public)
+          allow read: if canReadShelf();
+          
+          // Write: owner only + valid shape
+          allow create, update: if isSignedIn() 
+            && request.auth.uid == userId
+            && validShelfFields(request.resource.data);
+          
+          // Delete: owner only
+          allow delete: if isSignedIn() && request.auth.uid == userId;
+        }
+      }
+    }
+
+    // ==================== Games Cache ====================
+    // Public read; write guarded by auth + shape validation.
+    match /games/{gameId} {
+
+      /** Check if user is an admin (has accountTier: 'admin' in their profile) */
+      function isAdmin() {
+        let userDoc = get(/databases/$(database)/documents/users/$(request.auth.uid));
+        return isSignedIn()
+          && userDoc != null
+          && userDoc.data != null
+          && userDoc.data.accountTier == 'admin';
+      }
+
+      /** Check if this is a focal point only update (admin feature) */
+      function isFocalPointUpdate() {
+        let keys = request.resource.data.diff(resource.data).affectedKeys();
+        return keys.hasOnly(['focalPointX', 'focalPointY']);
+      }
+
+      /** Validate focal point fields - use is number since JS sends floats */
+      function validFocalPoint(data) {
+        return (data.focalPointX == null || ((data.focalPointX is int || data.focalPointX is number) && data.focalPointX >= 0 && data.focalPointX <= 100))
+          && (data.focalPointY == null || ((data.focalPointY is int || data.focalPointY is number) && data.focalPointY >= 0 && data.focalPointY <= 100));
+      }
+
+      allow read: if true;
+
+      // Full document create/update: any signed-in user with valid shape
+      allow create: if isSignedIn() && validGameDoc(request.resource.data);
+
+      // Update: either full doc validation OR admin focal point update
+      allow update: if isSignedIn() && (
+        validGameDoc(request.resource.data)
+        || (isAdmin() && isFocalPointUpdate() && validFocalPoint(request.resource.data))
+      );
+
+      allow delete: if false;
+    }
+
+    // ==================== Game Sessions (Phase 3 Top-Level) ====================
+    // Game sessions are now stored as top-level documents for flexibility.
+    // Sessions can be linked to tournaments OR standalone (casual sessions).
+
+    match /gameSessions/{sessionId} {
+
+      /** Validate game session participant structure */
+      function validParticipant(p) {
+        return p is map
+          && p.playerId is string && p.playerId.size() > 0 && p.playerId.size() <= 50
+          && p.name is string && p.name.size() > 0 && p.name.size() <= 30;
+      }
+
+      /** Validate game session placement structure */
+      function validPlacement(pl) {
+        return pl is map
+          && pl.rank is int && pl.rank >= 1
+          && pl.playerIds is list && pl.playerIds.size() > 0;
+      }
+
+      /** Validate game session results structure */
+      function validGameSessionResults(results) {
+        return results is map
+          && results.mode in ['freeForAll', 'teams']
+          && results.placements is list
+          && results.placements.size() > 0
+          && results.placements.size() <= 200;
+      }
+
+      /** Validate game session document fields */
+      function validGameSessionFields(data) {
+        return data.ownerId is string && data.ownerId == request.auth.uid
+          && isStringMax(data.gameName, 80)
+          && (data.status == null || data.status in ['draft', 'complete'])
+          && isStringMax(data.preset, 10)
+          && validScoringRules(data.scoringRules)
+          && data.participants is list && data.participants.size() > 0 && data.participants.size() <= 200
+          && validGameSessionResults(data.results)
+          && (data.participantUserIds == null || (data.participantUserIds is list && data.participantUserIds.size() <= 200))
+          && (data.winnerUserIds == null || (data.winnerUserIds is list && data.winnerUserIds.size() <= 50))
+          && isOptionalStringMax(data.tournamentId, 50)
+          && isOptionalStringMax(data.bracketMatchId, 50)
+          && isOptionalStringMax(data.gameId, 50)
+          && isOptionalStringMax(data.gameThumbnail, 500)
+          && isOptionalStringMax(data.note, 1000)
+          && isTimestampLike(data.playedAt)
+          && isTimestampLike(data.createdAt)
+          && isTimestampLike(data.updatedAt);
+      }
+
+      /** Check if user can access this session (owner or participant) */
+      function canAccessSession() {
+        return isSignedIn() && (
+          resource.data.ownerId == request.auth.uid
+          || (resource.data.participantUserIds != null && request.auth.uid in resource.data.participantUserIds)
+        );
+      }
+
+      // Read: owner or participant
+      allow read: if canAccessSession();
+
+      // Create: owner must be auth user, valid document shape
+      allow create: if isSignedIn()
+        && request.resource.data.ownerId == request.auth.uid
+        && isStringMax(request.resource.data.gameName, 80)
+        && isStringMax(request.resource.data.preset, 10)
+        && validScoringRules(request.resource.data.scoringRules)
+        && request.resource.data.participants is list
+        && request.resource.data.participants.size() > 0
+        && validGameSessionResults(request.resource.data.results)
+        && (request.resource.data.status == null || request.resource.data.status in ['draft', 'complete'])
+        && isOptionalStringMax(request.resource.data.tournamentId, 50)
+        && isOptionalStringMax(request.resource.data.gameId, 50)
+        && isOptionalStringMax(request.resource.data.gameThumbnail, 500)
+        && isTimestampLike(request.resource.data.playedAt)
+        && isTimestampLike(request.resource.data.createdAt)
+        && isTimestampLike(request.resource.data.updatedAt)
+        && (request.resource.data.participantUserIds == null || (request.resource.data.participantUserIds is list && request.resource.data.participantUserIds.size() <= 200))
+        && (request.resource.data.winnerUserIds == null || (request.resource.data.winnerUserIds is list && request.resource.data.winnerUserIds.size() <= 50));
+
+      // Update: owner only, valid document shape
+      allow update: if isSignedIn()
+        && resource.data.ownerId == request.auth.uid
+        && isStringMax(request.resource.data.gameName, 80)
+        && isStringMax(request.resource.data.preset, 10)
+        && validScoringRules(request.resource.data.scoringRules)
+        && request.resource.data.participants is list
+        && request.resource.data.participants.size() > 0
+        && validGameSessionResults(request.resource.data.results)
+        && (request.resource.data.status == null || request.resource.data.status in ['draft', 'complete'])
+        && isOptionalStringMax(request.resource.data.tournamentId, 50)
+        && isOptionalStringMax(request.resource.data.gameId, 50)
+        && isOptionalStringMax(request.resource.data.gameThumbnail, 500)
+        && isTimestampLike(request.resource.data.playedAt)
+        && isTimestampLike(request.resource.data.createdAt)
+        && isTimestampLike(request.resource.data.updatedAt)
+        && (request.resource.data.participantUserIds == null || (request.resource.data.participantUserIds is list && request.resource.data.participantUserIds.size() <= 200))
+        && (request.resource.data.winnerUserIds == null || (request.resource.data.winnerUserIds is list && request.resource.data.winnerUserIds.size() <= 50));
+
+      // Delete: owner only
+      allow delete: if isSignedIn()
+        && resource.data.ownerId == request.auth.uid;
+    }
+
+    // ==================== Tournament Documents ====================
+
+    match /tournaments/{tournamentId} {
+      
+      /** Check if the current user is a member of this tournament */
+      function isMember() {
+        return isSignedIn() &&
+          (
+            (resource.data.memberIds != null && request.auth.uid in resource.data.memberIds)
+            || (request.resource.data.memberIds != null && request.auth.uid in request.resource.data.memberIds)
+          );
+      }
+
+      // Read: any signed-in user (for live sync stability)
+      allow read: if isSignedIn();
+
+      // Create: user must be in memberIds + valid shape
+      allow create: if isSignedIn()
+        && request.resource.data.memberIds != null
+        && request.auth.uid in request.resource.data.memberIds
+        && validTournamentFields(request.resource.data);
+
+      // Update: owner-only + ownerId must be in memberIds + valid shape
+      allow update: if isSignedIn()
+        && request.resource.data.memberIds != null
+        && request.auth.uid in request.resource.data.memberIds
+        && (request.resource.data.ownerId == null || request.resource.data.ownerId == request.auth.uid)
+        && (request.resource.data.ownerId == null || request.resource.data.ownerId in request.resource.data.memberIds)
+        && validTournamentFields(request.resource.data);
+
+      // Delete: owner-only
+      allow delete: if isSignedIn()
+        && resource.data.ownerId != null
+        && resource.data.ownerId == request.auth.uid;
+
+      // ==================== Game Session Documents ====================
+
+      match /gameSessions/{sessionId} {
+        
+        /** Get the parent tournament data */
+        function getParentTournament() {
+          return get(/databases/$(database)/documents/tournaments/$(tournamentId)).data;
+        }
+        
+        /** Check if the current user can edit the parent tournament (owner or editor) */
+        function canEditParentTournament() {
+          let tournament = getParentTournament();
+          return isSignedIn()
+            && (
+              // User is the owner
+              tournament.ownerId == request.auth.uid
+              // Or user has editor role
+              || (tournament.memberRoles != null && tournament.memberRoles[request.auth.uid] == 'editor')
+            );
+        }
+        
+        /** Validate game session document fields */
+        function validSessionFields(data, tid) {
+          return data.tournamentId == tid
+            && isStringMax(data.gameName, 80)
+            && isStringMax(data.gameType, 10)
+            && isStringMax(data.preset, 10)
+            && validScoringRules(data.scoringRules)
+            && validParticipants(data.participants)
+            && validResults(data.results);
+          // Note: teams validation skipped - optional field causes issues when missing
+        }
+        
+        // Read: any signed-in user (for live sync stability)
+        allow read: if isSignedIn();
+        
+        // Create/Update: owner or editor only + valid shape
+        allow create, update: if canEditParentTournament()
+          && validSessionFields(request.resource.data, tournamentId);
+        
+        // Delete: owner or editor only
+        allow delete: if canEditParentTournament();
+      }
+    }
+  }
+}

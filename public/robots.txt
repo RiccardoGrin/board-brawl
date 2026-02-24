@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://board-brawl.com/sitemap.xml
+Host: board-brawl.com
