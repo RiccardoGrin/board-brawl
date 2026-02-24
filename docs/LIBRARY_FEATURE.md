@@ -191,6 +191,65 @@ These are enriched automatically when loading libraries if missing.
 
 ---
 
+## AI Photo Import (Shelfie Scanner)
+
+Upload a photo of your board game shelf and let Gemini AI detect and import games automatically.
+
+### How It Works
+
+1. Click **"Import from Photo"** in the library view (requires admin/premium account)
+2. Upload a photo or capture one with your camera
+3. The image is compressed client-side (max 1920px, ~1MB) and sent to a Cloud Function
+4. Gemini 2.0 Flash analyzes the image and returns detected game names with confidence scores
+5. Each name is matched against local cache or BGG search
+6. Review detected games, deselect any false positives, and choose a target library
+7. Games are added to your library and auto-placed on the shelf
+
+### Access Control
+
+The feature requires one of:
+- `accountTier: "admin"` on the user's Firestore document
+- `accountTier: "premium"` on the user's Firestore document
+- `"aiPhotoImport"` in the user's `features` array
+
+Access is enforced both client-side (button visibility) and server-side (Cloud Function returns 403).
+
+### Setup
+
+1. Store a Gemini API key as a Firebase secret:
+   ```bash
+   firebase functions:secrets:set GEMINI_API_KEY
+   ```
+2. Deploy Cloud Functions:
+   ```bash
+   firebase deploy --only functions
+   ```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `functions/src/geminiVision.ts` | Gemini Vision Cloud Function |
+| `src/services/photoImport.ts` | Client-side image compression and orchestration |
+| `src/services/gameSearch.ts` | `matchDetectedGames()` — name matching via BGG |
+| `src/components/library/PhotoImportModal.tsx` | Upload UI, results review, and import |
+| `src/hooks/useFeatureAccess.ts` | Client-side access tier checks |
+
+---
+
+## Admin: Game Thumbnail Focal Points
+
+Admins can set the **focal point** for any game's box art thumbnail in the shared `/games` collection. This controls which area of the image is visible when displayed in the virtual shelf, ensuring game art looks correct for all users.
+
+**How to use:**
+1. Open the edit modal for any game in your library
+2. Adjust the focal point using the visual editor
+3. Click **"Save to Games"** (admin-only button) to write the focal point to the shared games collection
+
+Focal points are stored as `focalPointX` and `focalPointY` (0–100 range) on the `/games/{gameId}` document. Firestore rules enforce that only admins can write to this collection.
+
+---
+
 ## Known Limitations
 
 - **Manual Play Counts:** Play counts must be updated manually. Automatic tracking via game sessions planned for future.

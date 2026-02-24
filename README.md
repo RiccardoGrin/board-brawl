@@ -20,6 +20,7 @@ Whether you're battling it out in free-for-all classics or teaming up for epic s
 - **Virtual Collection:** Catalog your physical board game collection with BGG integration for automatic metadata.
 - **Virtual Shelf View:** Display your games in a customizable 2D grid that resembles real board game shelves.
 - **Multiple Libraries:** Create separate libraries (e.g., "Home Collection", "Office Games") with public/private visibility.
+- **AI Photo Import:** Upload a photo of your board game shelf and let Gemini AI automatically detect and import your games into the virtual library.
 
 ### Statistics & Tracking
     - **Live Leaderboard:** See rankings update in real-time as games are added.
@@ -103,6 +104,40 @@ The project follows a **Modern Medieval** aesthetic. For colors, typography, and
 | [Roadmap](docs/ROADMAP.md) | Future development phases and planned features |
 | [BGG API Integration](docs/BGG_API_INTEGRATION.md) | BoardGameGeek API integration details |
 | [Style Guide](STYLE_GUIDE.md) | Design system and component styling |
+
+## AI Features & Admin Setup
+
+BoardBrawl includes an AI-powered **photo import** feature that uses Google's Gemini Vision to scan a photo of your board game shelf and automatically detect game titles. Detected games are matched against BoardGameGeek and can be imported directly into your virtual library.
+
+This feature is gated behind an **admin** (or premium) account tier. To enable it for your deployment:
+
+### 1. Set up Gemini API access
+
+```bash
+# Store your Gemini API key as a Firebase secret
+firebase functions:secrets:set GEMINI_API_KEY
+
+# Deploy the Cloud Functions
+firebase deploy --only functions
+```
+
+### 2. Grant yourself admin access
+
+In the Firebase Console, go to **Firestore** → `users` collection → your user document (by UID), and set:
+
+```
+accountTier: "admin"
+```
+
+Alternatively, to grant only the photo import feature without full admin access, add `"aiPhotoImport"` to the `features` array on the user document.
+
+### 3. Use the feature
+
+Once you're an admin, an **"Import from Photo"** button appears in the library view. Upload or capture a photo, review the detected games, and import them into any library.
+
+### Admin: Game Thumbnail Focal Points
+
+Admins also get a **"Save to Games"** button in the game edit modal. This lets you set the focal point (visible crop area) for a game's thumbnail image in the shared `/games` collection. The focal point ensures game box art displays nicely in the virtual 2D shelf for all users.
 
 ## Guest vs Signed-In Mode
 
