@@ -7,8 +7,8 @@ Whether you're battling it out in free-for-all classics or teaming up for epic s
 ## Key Features
 
 ### Tournament Management
-    - **Multi-Game Tournaments:** Play multiple games and accumulate points across sessions. Perfect for game nights with various games.
-    - **Single-Elimination Brackets:** One-on-one matches with automatic bracket generation and advancement. Ideal for competitive tournaments with a single game type.
+- **Multi-Game Tournaments:** Play multiple games and accumulate points across sessions. Perfect for game nights with various games.
+- **Single-Elimination Brackets:** One-on-one matches with automatic bracket generation and advancement. Ideal for competitive tournaments with a single game type.
 - **Tournament Lifecycle:** Create, manage, and conclude tournaments with a single click. Finished tournaments are locked as a "hall of fame".
 
 ### Player System
@@ -23,7 +23,7 @@ Whether you're battling it out in free-for-all classics or teaming up for epic s
 - **AI Photo Import:** Upload a photo of your board game shelf and let Gemini AI automatically detect and import your games into the virtual library.
 
 ### Statistics & Tracking
-    - **Live Leaderboard:** See rankings update in real-time as games are added.
+- **Live Leaderboard:** See rankings update in real-time as games are added.
 - **Sortable Stats:** Sort by total points, games played, or average points per game.
 - **Player History:** Expand any player's row to see their complete game history.
 
