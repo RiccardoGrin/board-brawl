@@ -59,11 +59,13 @@ Each contributor/deployment needs its own Firebase project (free tier is fine). 
 
 ### Cloud Functions CORS
 
-Cloud Functions default to allowing `localhost` origins only. To allow your production domain, set the `ALLOWED_ORIGINS` environment variable on your Firebase functions:
+Cloud Functions default to allowing `localhost` origins only. To allow your production domain, create a `functions/.env` file (not committed to git) with:
 
-```bash
-firebase functions:config:set cors.allowed_origins="https://your-domain.com,http://localhost:5173"
+```env
+ALLOWED_ORIGINS=https://your-domain.com,http://localhost:5173
 ```
+
+Then redeploy functions with `firebase deploy --only functions`.
 
 ### SEO / Site URL
 

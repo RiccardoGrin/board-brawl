@@ -3,8 +3,16 @@
   "private": false,
   "version": "1.0.0",
   "description": "BoardBrawl: manage casual, multi-game tournaments with friends and family.",
-  "homepage": "https://board-brawl.com",
   "license": "MIT",
+  "author": "Riccardo Grinover",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RiccardoGrin/board-brawl.git"
+  },
+  "bugs": {
+    "url": "https://github.com/RiccardoGrin/board-brawl/issues"
+  },
+  "homepage": "https://github.com/RiccardoGrin/board-brawl#readme",
   "keywords": [
     "board games",
     "tournament",

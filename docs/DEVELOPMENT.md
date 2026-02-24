@@ -45,7 +45,7 @@ VITE_FIREBASE_PROJECT_ID=...
 VITE_FIREBASE_STORAGE_BUCKET=...
 VITE_FIREBASE_MESSAGING_SENDER_ID=...
 VITE_FIREBASE_APP_ID=...
-VITE_SITE_URL=https://board-brawl.com  # For canonical URLs
+VITE_SITE_URL=https://your-domain.com  # Your deployed URL
 ```
 
 ### Firebase Console Setup
@@ -136,11 +136,6 @@ Pages use a shared `SEO` component for:
 - Twitter Card tags
 
 Set `VITE_SITE_URL` in your environment for correct canonical/OG URLs.
-
-### Sitemap & Robots
-
-- `public/sitemap.xml` - Site structure for search engines
-- `public/robots.txt` - Crawler instructions
 
 ### PWA Configuration
 

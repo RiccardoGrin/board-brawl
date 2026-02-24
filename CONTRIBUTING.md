@@ -68,14 +68,34 @@ VITE_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
 VITE_FIREBASE_APP_ID=your-app-id
 VITE_BGG_SEARCH_URL=https://us-central1-your-project-id.cloudfunctions.net/bggSearch
 VITE_FUNCTIONS_REGION=us-central1
-BGG_API_TOKEN=your-bgg-api-token
 ```
 
-> **Note:** The app works in guest mode (localStorage only) without Firebase credentials configured. You only need Firebase for sign-in and cloud sync features.
+### What's Required vs Optional
+
+| Component | Required for | How to set up |
+|---|---|---|
+| Firebase project + `.env.local` | Auth & cloud sync | Steps above — free tier is fine |
+| BGG API token | Game search | Firebase secret (see below) |
+| Gemini API key | AI photo import only | Firebase secret (see [README](README.md#ai-features--admin-setup)) |
+| CORS config | Production deployment only | `functions/.env` file (see [README](README.md#cloud-functions-cors)) |
+
+**Without any config**, the app still runs in guest mode (localStorage only) — no Firebase project needed to try it out.
 
 ### BGG API Token
 
-The BoardGameGeek search integration requires an API token. You can get one from the [BGG API](https://boardgamegeek.com/wiki/page/BGG_XML_API2).
+The BGG game search Cloud Function requires an API token. This is stored as a **Firebase secret**, not in `.env.local`.
+
+1. **Get a token:** Request one from the [BoardGameGeek API2 Information](https://boardgamegeek.com/wiki/page/BGG_XML_API2) page — follow the instructions there to request API access.
+2. **Store it as a Firebase secret:**
+   ```bash
+   firebase functions:secrets:set BGG_API_TOKEN
+   ```
+3. **Redeploy functions:**
+   ```bash
+   firebase deploy --only functions
+   ```
+
+> **Note:** Game search won't work without this token, but the rest of the app functions normally.
 
 ### Running the App
 
