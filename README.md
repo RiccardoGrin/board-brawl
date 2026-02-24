@@ -19,6 +19,9 @@ Whether you're battling it out in free-for-all classics or teaming up for epic s
 ### Board Game Library
 - **Virtual Collection:** Catalog your physical board game collection with BGG integration for automatic metadata.
 - **Virtual Shelf View:** Display your games in a customizable 2D grid that resembles real board game shelves.
+
+  ![Virtual 2D Shelf View](public/shelf-preview.png)
+
 - **Multiple Libraries:** Create separate libraries (e.g., "Home Collection", "Office Games") with public/private visibility.
 - **AI Photo Import:** Upload a photo of your board game shelf and let Gemini AI automatically detect and import your games into the virtual library.
 
